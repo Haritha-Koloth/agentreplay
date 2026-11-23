@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>agentreplay</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg:#0f1115; --panel:#161a22; --panel2:#1c2230; --border:#2a3142; --text:#e6e9ef; --muted:#8b93a7;
+    --accent:#4da3ff; --live:#4da3ff; --cached:#6b7280; --edited:#f5a524; --ok:#3ecf8e; --err:#ff5d6c; --diff:#a78bfa;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.5 -apple-system,"Segoe UI",system-ui,sans-serif; background:var(--bg); color:var(--text); height:100vh; display:flex; flex-direction:column; }
+  header { padding:10px 16px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:12px; }
+  header h1 { font-size:15px; margin:0; letter-spacing:.3px; }
+  header .tag { color:var(--muted); font-size:12px; }
+  main { flex:1; display:grid; grid-template-columns:260px 1fr 380px; min-height:0; }
+  section { overflow:auto; min-height:0; }
+  #runs { border-right:1px solid var(--border); background:var(--panel); }
+  #detail { border-left:1px solid var(--border); background:var(--panel); padding:14px; }
+  .run { padding:9px 14px; border-bottom:1px solid var(--border); cursor:pointer; }
+  .run:hover { background:var(--panel2); }
+  .run.sel { background:var(--panel2); box-shadow:inset 3px 0 var(--accent); }
+  .run.fork { padding-left:28px; }
+  .run .id { font-family:ui-monospace,Menlo,monospace; font-size:12px; }
+  .run .meta { color:var(--muted); font-size:12px; }
+  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; background:var(--ok); }
+  .dot.error { background:var(--err); }
+  #timeline { padding:16px 20px; }
+  .banner { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin-bottom:14px; }
+  .banner .k { color:var(--muted); font-size:12px; }
+  .final.err { color:var(--err); }
+  .step { display:flex; gap:12px; margin-bottom:6px; cursor:pointer; }
+  .rail { width:22px; display:flex; flex-direction:column; align-items:center; }
+  .node { width:12px; height:12px; border-radius:50%; margin-top:14px; border:2px solid var(--live); background:var(--bg); }
+  .step.cached .node { border-color:var(--cached); background:var(--cached); }
+  .step.edited .node { border-color:var(--edited); background:var(--edited); }
+  .step.live .node { background:var(--live); }
+  .step.error .node { border-color:var(--err); background:var(--err); }
+  .line { flex:1; width:2px; background:var(--border); }
+  .card { flex:1; background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:9px 12px; min-width:0; }
+  .step:hover .card { border-color:#3a4358; }
+  .step.sel .card { border-color:var(--accent); }
+  .step.changed .card { box-shadow:inset 3px 0 var(--diff); }
+  .head { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .name { font-weight:600; }
+  .badge { font-size:11px; padding:1px 7px; border-radius:99px; border:1px solid var(--border); color:var(--muted); }
+  .badge.live { color:var(--live); border-color:var(--live); }
+  .badge.edited { color:var(--edited); border-color:var(--edited); }
+  .badge.cached { color:var(--cached); }
+  .badge.changed { color:var(--diff); border-color:var(--diff); }
+  .badge.kind { text-transform:uppercase; letter-spacing:.5px; }
+  .ms { margin-left:auto; color:var(--muted); font-size:12px; }
+  .preview { color:var(--muted); font-family:ui-monospace,Menlo,monospace; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:3px; }
+  h3 { margin:0 0 6px; font-size:12px; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); }
+  pre { background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:8px; margin:0 0 12px; overflow:auto; font:12px/1.5 ui-monospace,Menlo,monospace; white-space:pre-wrap; word-break:break-word; }
+  textarea { width:100%; height:130px; background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:8px; font:12px/1.5 ui-monospace,Menlo,monospace; resize:vertical; }
+  textarea:focus { outline:none; border-color:var(--accent); }
+  .tabs { display:flex; gap:6px; margin-bottom:8px; }
+  .tab { padding:3px 10px; border:1px solid var(--border); border-radius:6px; cursor:pointer; color:var(--muted); font-size:12px; }
+  .tab.on { color:var(--text); border-color:var(--accent); }
+  button { background:var(--accent); color:#04121f; border:0; border-radius:6px; padding:7px 12px; font-weight:600; cursor:pointer; }
+  button.ghost { background:transparent; color:var(--text); border:1px solid var(--border); }
+  button:disabled { opacity:.5; cursor:default; }
+  .row { display:flex; gap:8px; margin-top:8px; }
+  .msg { color:var(--err); font-size:12px; margin-top:8px; min-height:16px; }
+  .empty { color:var(--muted); padding:30px 16px; text-align:center; }
+  .legend { color:var(--muted); font-size:12px; display:flex; gap:12px; margin-bottom:12px; flex-wrap:wrap; }
+</style>
+</head>
+<body>
+<header>
+  <h1>agentreplay</h1>
+  <span class="tag">time-travel debugger for AI agents</span>
+</header>
+<main>
+  <section id="runs"></section>
+  <section id="timeline"></section>
+  <section id="detail"><div class="empty">Select a step to inspect it, edit it, and fork the run from there.</div></section>
+</main>
+<script>
+(function () {
+  "use strict";
+  var state = { runs: [], run: null, parent: null, stepIdx: null, tab: "output" };
+
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+  function pretty(v) { return JSON.stringify(v, null, 2); }
+  function oneLine(v) { var s = typeof v === "string" ? v : JSON.stringify(v); return s === undefined ? "" : s; }
+  function api(path, opts) {
+    return fetch(path, opts).then(function (r) {
+      return r.json().then(function (j) {
+        if (!r.ok) throw new Error(j.error || r.statusText);
+        return j;
+      });
+    });
+  }
+
+  function loadRuns(selectId) {
+    return api("/api/runs").then(function (runs) {
+      state.runs = runs;
+      renderRuns();
+      var id = selectId || (state.run && state.run.id) || (runs[0] && runs[0].id);
+      if (id) return selectRun(id);
+      renderTimeline();
+    });
+  }
+
+  function selectRun(id) {
+    return api("/api/runs/" + encodeURIComponent(id)).then(function (run) {
+      state.run = run; state.parent = null; state.stepIdx = null;
+      var done = run.parent_id
+        ? api("/api/runs/" + encodeURIComponent(run.parent_id)).then(function (p) { state.parent = p; }, function () {})
+        : Promise.resolve();
+      return done.then(function () {
+        if (run.fork_at !== null && run.fork_at !== undefined) state.stepIdx = run.fork_at;
+        renderRuns(); renderTimeline(); renderDetail();
+      });
+    });
+  }
+
+  function renderRuns() {
+    var box = document.getElementById("runs");
+    box.textContent = "";
+    if (!state.runs.length) { box.appendChild(el("div", "empty", "No runs yet. Decorate an agent with @agent and run it.")); return; }
+    state.runs.forEach(function (r) {
+      var d = el("div", "run" + (r.parent_id ? " fork" : "") + (state.run && state.run.id === r.id ? " sel" : ""));
+      var top = el("div");
+      top.appendChild(el("span", "dot" + (r.status === "error" ? " error" : "")));
+      top.appendChild(el("span", "id", r.id));
+      top.appendChild(document.createTextNode(" " + r.agent));
+      d.appendChild(top);
+      var meta = r.n_steps + " steps · " + Math.round(r.duration_ms) + " ms";
+      if (r.parent_id) meta += " · fork of " + r.parent_id + "@" + r.fork_at;
+      d.appendChild(el("div", "meta", meta));
+      d.onclick = function () { selectRun(r.id); };
+      box.appendChild(d);
+    });
+  }
+
+  function changed(s) {
+    var p = state.parent && state.parent.steps[s.index];
+    if (!p) return !!state.parent;
+    return pretty(p.output) !== pretty(s.output) || p.error !== s.error;
+  }
+
+  function renderTimeline() {
+    var box = document.getElementById("timeline");
+    box.textContent = "";
+    var run = state.run;
+    if (!run) { box.appendChild(el("div", "empty", "Nothing to show.")); return; }
+
+    var b = el("div", "banner");
+    b.appendChild(el("div", "k", "RUN " + run.id + " · " + run.agent + (run.parent_id ? " · fork of " + run.parent_id + " at step " + run.fork_at : "")));
+    b.appendChild(el("div", "k", "INPUTS"));
+    b.appendChild(el("div", "", oneLine(run.inputs)));
+    b.appendChild(el("div", "k", run.status === "error" ? "ERROR" : "FINAL ANSWER"));
+    var fin = el("div", "final" + (run.status === "error" ? " err" : ""), run.status === "error" ? run.error : oneLine(run.output));
+    b.appendChild(fin);
+    if (state.parent && run.status === "ok" && pretty(state.parent.output) !== pretty(run.output)) {
+      b.appendChild(el("div", "k", "PARENT ANSWER (before the edit)"));
+      b.appendChild(el("div", "", state.parent.status === "error" ? state.parent.error : oneLine(state.parent.output)));
+    }
+    box.appendChild(b);
+
+    var lg = el("div", "legend");
+    ["live: executed", "cached: reused from parent", "edited: your change"].forEach(function (t) { lg.appendChild(el("span", "", t)); });
+    if (state.parent) lg.appendChild(el("span", "", "purple bar: output differs from parent"));
+    box.appendChild(lg);
+
+    run.steps.forEach(function (s, i) {
+      var diff = state.parent && changed(s);
+      var row = el("div", "step " + s.source + (s.error ? " error" : "") + (diff ? " changed" : "") + (state.stepIdx === i ? " sel" : ""));
+      var rail = el("div", "rail");
+      rail.appendChild(el("div", "node"));
+      if (i < run.steps.length - 1) rail.appendChild(el("div", "line"));
+      var card = el("div", "card");
+      var head = el("div", "head");
+      head.appendChild(el("span", "name", i + ". " + s.name));
+      head.appendChild(el("span", "badge kind", s.kind));
+      head.appendChild(el("span", "badge " + s.source, s.source));
+      if (diff) head.appendChild(el("span", "badge changed", "changed"));
+      head.appendChild(el("span", "ms", s.duration_ms + " ms"));
+      card.appendChild(head);
+      card.appendChild(el("div", "preview", s.error ? "ERROR " + s.error : "→ " + oneLine(s.output)));
+      row.appendChild(rail); row.appendChild(card);
+      row.onclick = function () { state.stepIdx = i; state.tab = "output"; renderTimeline(); renderDetail(); };
+      box.appendChild(row);
+    });
+  }
+
+  function renderDetail() {
+    var box = document.getElementById("detail");
+    box.textContent = "";
+    var run = state.run;
+    if (!run || state.stepIdx === null || !run.steps[state.stepIdx]) {
+      box.appendChild(el("div", "empty", "Select a step to inspect it, edit it, and fork the run from there."));
+      return;
+    }
+    var s = run.steps[state.stepIdx];
+    box.appendChild(el("h3", "", "Step " + s.index + " · " + s.name));
+    box.appendChild(el("h3", "", "Input"));
+    box.appendChild(el("pre", "", pretty(s.input)));
+    box.appendChild(el("h3", "", s.error ? "Error" : "Output"));
+    box.appendChild(el("pre", "", s.error || pretty(s.output)));
+
+    box.appendChild(el("h3", "", "Fork from this step"));
+    var tabs = el("div", "tabs");
+    ["output", "input"].forEach(function (t) {
+      var tab = el("div", "tab" + (state.tab === t ? " on" : ""), t === "output" ? "Edit output (skip step)" : "Edit input (re-run step)");
+      tab.onclick = function () { state.tab = t; renderDetail(); };
+      tabs.appendChild(tab);
+    });
+    box.appendChild(tabs);
+
+    var ta = document.createElement("textarea");
+    ta.spellcheck = false;
+    ta.value = pretty(state.tab === "output" ? s.output : s.input);
+    box.appendChild(ta);
+    var msg = el("div", "msg");
+
+    function fork(edit, btn) {
+      btn.disabled = true; msg.textContent = "";
+      api("/api/runs/" + encodeURIComponent(run.id) + "/fork", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fork_at: s.index, edit: edit })
+      }).then(function (nr) { return loadRuns(nr.id); })
+        .catch(function (e) { msg.textContent = e.message; })
+        .then(function () { btn.disabled = false; });
+    }
+
+    var row = el("div", "row");
+    var go = el("button", "", "Fork & replay");
+    go.onclick = function () {
+      var v;
+      try { v = JSON.parse(ta.value); } catch (e) { msg.textContent = "Invalid JSON: " + e.message; return; }
+      if (state.tab === "input" && (v === null || typeof v !== "object" || Array.isArray(v))) { msg.textContent = "Input must be a JSON object."; return; }
+      fork(state.tab === "output" ? { output: v } : { input: v }, go);
+    };
+    var live = el("button", "ghost", "Re-run live");
+    live.onclick = function () { fork({}, live); };
+    row.appendChild(go); row.appendChild(live);
+    box.appendChild(row);
+    box.appendChild(msg);
+  }
+
+  loadRuns();
+})();
+</script>
+</body>
+</html>
